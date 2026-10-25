@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Говори: общение взглядом</title>
+<style>
+:root{--bg:#f6f4ef;--fg:#1d1d1b;--card:#fff;--ac:#1f6feb;--acfg:#fff;--line:#d3cfc2;--mut:#6b6a63;--ok:#1a7f4b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15161a;--fg:#f1efe8;--card:#23252b;--ac:#5b9bff;--acfg:#0b0d12;--line:#3a3d46;--mut:#a3a29a;--ok:#4cc38a}}
+:root[data-theme="dark"]{--bg:#15161a;--fg:#f1efe8;--card:#23252b;--ac:#5b9bff;--acfg:#0b0d12;--line:#3a3d46;--mut:#a3a29a;--ok:#4cc38a}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;display:flex;flex-direction:column;-webkit-user-select:none;user-select:none}
+#top{padding:10px 10px 6px;display:flex;flex-direction:column;gap:8px}
+#txt{min-height:64px;max-height:22vh;overflow:auto;background:var(--card);border:2px solid var(--line);border-radius:14px;padding:10px 14px;font-size:28px;line-height:1.25;word-break:break-word}
+#txt.empty{color:var(--mut)}
+.row{display:flex;gap:8px}
+button{font:inherit;color:var(--fg);background:var(--card);border:2px solid var(--line);border-radius:14px;padding:0 10px;cursor:pointer;touch-action:manipulation}
+button:active{background:var(--ac);color:var(--acfg)}
+.big{flex:1;height:64px;font-size:22px;font-weight:600}
+.go{background:var(--ok);color:#fff;border-color:var(--ok)}
+.tabs{display:flex;gap:6px;padding:0 10px}
+.tab{flex:1;height:52px;font-size:19px}
+.tab[aria-selected=true]{background:var(--ac);color:var(--acfg);border-color:var(--ac)}
+main{flex:1;overflow:auto;padding:8px 10px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.tile{min-height:84px;font-size:23px;font-weight:600;padding:8px}
+.tile.yes{background:#1a7f4b;color:#fff;border-color:#1a7f4b}
+.tile.no{background:#b3261e;color:#fff;border-color:#b3261e}
+.pred{display:flex;gap:6px;margin-bottom:8px}
+.pred button{flex:1;height:58px;font-size:21px}
+.kb{display:grid;grid-template-columns:repeat(11,1fr);gap:4px}
+.kb button{height:54px;font-size:21px;padding:0}
+.kb .w{grid-column:span 3}.kb .sp{grid-column:span 5}
+.lbl{font-size:15px;color:var(--mut);margin:4px 2px}
+input,select{font:inherit;font-size:18px;padding:12px;border-radius:12px;border:2px solid var(--line);background:var(--card);color:var(--fg);width:100%;box-sizing:border-box;-webkit-user-select:text;user-select:text}
+.note{font-size:15px;color:var(--mut);line-height:1.4;margin:8px 2px}
+</style>
+</head>
+<body>
+<div id="top">
+  <div id="txt" class="empty">Здесь появится ваш текст</div>
+  <div class="row">
+    <button class="big go" id="speak">Сказать</button>
+    <button class="big" id="del">⌫ Слово</button>
+    <button class="big" id="clr">Очистить</button>
+  </div>
+</div>
+<div class="tabs" role="tablist">
+  <button class="tab" data-t="ph" aria-selected="true">Фразы</button>
+  <button class="tab" data-t="kb" aria-selected="false">Буквы</button>
+  <button class="tab" data-t="ai" aria-selected="false">Помощник</button>
+  <button class="tab" data-t="st" aria-selected="false">Настройки</button>
+</div>
+<main id="main"></main>
+<script>
+const $=s=>document.querySelector(s);
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let text='',tab='ph',aiList=[],aiBusy=false,aiMsg='';
+let cfg=LS.get('cfg',{voice:'',rate:0.9,ctx:'',key:''});
+let learned=LS.get('learned',{});
+const PHRASES=[
+ ['Да','yes'],['Нет','no'],
+ ['Мне больно'],['Мне нужна помощь'],
+ ['Хочу пить'],['Хочу есть'],
+ ['Мне холодно'],['Мне жарко'],
+ ['Поправьте позу'],['Нужно в туалет'],
+ ['Позовите врача'],['Прочитайте мне вслух'],
+ ['Спасибо'],['Я вас люблю'],
+ ['Включите телевизор'],['Выключите свет'],
+ ['Мне трудно дышать'],['Нужен аспиратор'],
+ ['Подождите, я набираю текст'],['Пожалуйста, повторите']
+];
+const WORDS='я ты он она мы вы они это что как где когда почему мне тебе нам вам не да нет хочу могу надо нужно пожалуйста спасибо привет здравствуйте до свидания позвони позовите пить есть спать воды чай кофе хлеб суп лекарство таблетку врача медсестру маму папу сына дочь жену мужа домой в больницу холодно жарко больно плохо хорошо отлично устал устала тихо громко включи выключи открой закрой подушку одеяло свет окно телевизор телефон планшет читать слушать смотреть музыку подвиньте поправьте помогите подождите сейчас потом завтра сегодня вчера люблю скучаю понимаю согласен согласна отдыхать гулять улица погода новости завтрак обед ужин сегодня очень немного много мало ещё уже тоже только если чтобы потому что спасибо большое'.split(' ');
+const ROWS=['йцукенгшщзх','фывапролджэ','ячсмитьбюъ'];
+function lastWord(){const m=text.match(/([А-Яа-яЁё-]*)$/);return m?m[1].toLowerCase():''}
+function preds(){
+  const w=lastWord(); if(!w) return ['Да','Нет','Мне','Хочу'];
+  const pool=[...Object.keys(learned).sort((a,b)=>learned[b]-learned[a]),...WORDS];
+  const out=[];for(const x of pool){if(x.startsWith(w)&&x!==w&&!out.includes(x))out.push(x);if(out.length>=4)break}
+  return out;
+}
+function setText(t){text=t;const e=$('#txt');e.textContent=t||'Здесь появится ваш текст';e.classList.toggle('empty',!t);e.scrollTop=e.scrollHeight;if(tab==='kb')renderPred()}
+function addWord(w){const lw=lastWord();setText(text.slice(0,text.length-lw.length)+w+' ');}
+function learn(){text.toLowerCase().split(/[^а-яё-]+/).forEach(w=>{if(w.length>2)learned[w]=(learned[w]||0)+1});LS.set('learned',learned)}
+let voices=[];
+function loadVoices(){voices=(window.speechSynthesis?speechSynthesis.getVoices():[]).filter(v=>/^ru/i.test(v.lang))}
+if(window.speechSynthesis){loadVoices();speechSynthesis.onvoiceschanged=()=>{loadVoices();if(tab==='st')render()}}
+function say(t){
+  if(!t||!window.speechSynthesis)return;
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(t);u.lang='ru-RU';u.rate=cfg.rate;
+  const v=voices.find(v=>v.voiceURI===cfg.voice)||voices[0];if(v)u.voice=v;
+  speechSynthesis.speak(u);
+}
+function speakText(){if(!text.trim())return;learn();say(text.trim())}
+function renderPred(){const p=$('#pred');if(!p)return;p.innerHTML='';preds().forEach(w=>{const b=document.createElement('button');b.textContent=w;b.onclick=()=>addWord(w);p.appendChild(b)})}
+function render(){
+  document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected',b.dataset.t===tab));
+  const m=$('#main');m.innerHTML='';
+  if(tab==='ph'){
+    const g=document.createElement('div');g.className='grid';
+    PHRASES.forEach(([t,k])=>{const b=document.createElement('button');b.className='tile '+(k||'');b.textContent=t;b.onclick=()=>{setText(t);say(t)};g.appendChild(b)});
+    m.appendChild(g);
+  }else if(tab==='kb'){
+    m.innerHTML='<div class="pred" id="pred"></div><div class="kb" id="kb"></div>';
+    const kb=$('#kb');
+    ROWS.forEach(r=>{[...r].forEach(c=>{const b=document.createElement('button');b.textContent=c;b.onclick=()=>setText(text+c);kb.appendChild(b)})});
+    [['Пробел','sp',()=>setText(text+' ')],['.',' ',()=>setText(text+'.')],['?',' ',()=>setText(text+'?')],['⌫','w',()=>setText(text.slice(0,-1))]].forEach(([l,c,f])=>{const b=document.createElement('button');b.textContent=l;if(c.trim())b.className=c;b.onclick=f;kb.appendChild(b)});
+    renderPred();
+  }else if(tab==='ai'){
+    m.innerHTML='<div class="lbl">С кем и о чём разговор (заполняет помощник)</div><input id="ctx" placeholder="Например: утро, пришла медсестра" value="">'+
+    '<div class="row" style="margin:8px 0"><button class="big" id="sug">Предложить фразы</button></div><div id="ai"></div>'+
+    '<div class="note">Помощник предлагает варианты по контексту и по уже набранному тексту (с ключом API текст уходит в Anthropic). Выбор всегда остаётся за вами: нажмите фразу, чтобы поставить её в поле и произнести.</div>';
+    $('#ctx').value=cfg.ctx;$('#ctx').oninput=e=>{cfg.ctx=e.target.value;LS.set('cfg',cfg)};
+    $('#sug').onclick=suggest;drawAI();
+  }else{
+    const opts=voices.map(v=>`<option value="${v.voiceURI}" ${v.voiceURI===cfg.voice?'selected':''}>${v.name}</option>`).join('')||'<option>Русские голоса не найдены</option>';
+    m.innerHTML=`<div class="lbl">Голос озвучивания</div><select id="vs">${opts}</select>
+    <div class="lbl" style="margin-top:12px">Скорость речи</div><input id="rt" type="range" min="0.5" max="1.4" step="0.1" value="${cfg.rate}">
+    <div class="lbl" style="margin-top:12px">Ключ Anthropic API (необязательно, для умных подсказок)</div><input id="key" type="password" placeholder="sk-ant-..." autocomplete="off" value="${cfg.key||''}">
+    <div class="row" style="margin-top:12px"><button class="big" id="test">Проверить голос</button></div>
+    <div class="note">Голоса берутся из iPhone: Настройки, Универсальный доступ, Речь, Голоса, Русский (скачайте качественный голос). Свой клонированный голос в браузере напрямую подключить нельзя, это отдельный шаг.</div>
+    <div class="note">Управление взглядом: Настройки, Универсальный доступ, Отслеживание взгляда (iPhone 12 и новее, iOS 18+). Откройте эту страницу в Safari и добавьте на экран «Домой».</div>`;
+    $('#vs').onchange=e=>{cfg.voice=e.target.value;LS.set('cfg',cfg)};
+    $('#key').oninput=e=>{cfg.key=e.target.value.trim();LS.set('cfg',cfg)};
+    $('#rt').oninput=e=>{cfg.rate=parseFloat(e.target.value);LS.set('cfg',cfg)};
+    $('#test').onclick=()=>say('Привет, это мой голос. Мне удобно так говорить.');
+  }
+}
+function drawAI(){
+  const a=$('#ai');if(!a)return;a.innerHTML='';
+  if(aiBusy){a.innerHTML='<div class="note">Думаю…</div>';return}
+  if(aiMsg){a.innerHTML='<div class="note">'+aiMsg+'</div>'}
+  const g=document.createElement('div');g.className='grid';
+  aiList.forEach(t=>{const b=document.createElement('button');b.className='tile';b.textContent=t;b.onclick=()=>{setText(t);say(t)};g.appendChild(b)});
+  a.appendChild(g);
+}
+async function suggest(){
+  aiMsg='';aiBusy=true;drawAI();
+  try{
+    if(!cfg.key){
+      const w=text.toLowerCase().split(/[^а-яё]+/).filter(x=>x.length>2);
+      let c=PHRASES.map(p=>p[0]).filter(t=>w.some(x=>t.toLowerCase().includes(x.slice(0,4))));
+      if(c.length<6)c=c.concat(PHRASES.map(p=>p[0]).filter(t=>!c.includes(t)).sort(()=>Math.random()-.5));
+      aiList=c.slice(0,6);aiMsg='Без ключа показываются готовые фразы. Для умных подсказок добавьте ключ в настройках.';
+    }else{
+      const prompt='Ты помогаешь человеку с БАС, который говорит медленно, глазами. Предложи 6 коротких, естественных реплик по-русски (до 8 слов каждая), которые он мог бы сказать сейчас.\nКонтекст: '+(cfg.ctx||'не указан')+'\nУже набрано: '+(text||'ничего')+'\nЕсли набрано начало, дополни его разными вариантами. Верни только JSON-массив из 6 строк.';
+      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':cfg.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-haiku-5-5',max_tokens:300,messages:[{role:'user',content:prompt}]})});
+      if(!r.ok)throw new Error('http '+r.status);
+      const d=await r.json();
+      const t=(d.content||[]).map(x=>x.text||'').join('');
+      const m=t.match(/\[[\s\S]*\]/);
+      const arr=m?JSON.parse(m[0]):[];
+      aiList=arr.filter(x=>typeof x==='string').slice(0,6);
+      if(!aiList.length)aiMsg='Не получилось, попробуйте ещё раз.';
+    }
+  }catch(e){aiMsg='Не получилось связаться с сервисом. Проверьте ключ и интернет.'}
+  aiBusy=false;drawAI();
+}
+$('#speak').onclick=speakText;
+$('#del').onclick=()=>{const t=text.replace(/\s+$/,'');setText(t.replace(/[^\s]*$/,''))};
+$('#clr').onclick=()=>setText('');
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});
+render();
+</script>
+</body>
+</html>
